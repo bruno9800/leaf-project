@@ -1,172 +1,244 @@
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+import sys
 import subprocess
 import pandas as pd
 import numpy as np
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QLineEdit, QLabel, QFileDialog, QTabWidget, QScrollArea,
+    QGridLayout, QMessageBox
+)
+from PyQt5.QtGui import QColor, QFont
+from PyQt5.QtCore import Qt
 
-# --- Funções da interface de visualização (já desenvolvidas anteriormente) ---
-
-def create_matrix_frame(parent, matrix, highlight_index=None, related_indexes=None):
-    frame = tk.Frame(parent)
-    rows, cols = matrix.shape
-    related_str = {str(idx) for idx in related_indexes} if related_indexes is not None else set()
-
-    for i in range(rows):
-        for j in range(cols):
-            cell_value = matrix[i, j]
-            cell_str = str(cell_value)
-            if highlight_index is not None and cell_str == str(highlight_index):
-                bg = "yellow"
-            elif cell_str in related_str:
-                bg = "lightblue"
-            else:
-                bg = "white"
-            label = tk.Label(frame, text=str(cell_value),
-                             borderwidth=1, relief="solid",
-                             bg=bg, padx=5, pady=5)
-            label.grid(row=i, column=j, sticky="nsew", padx=1, pady=1)
-    return frame
-
-def create_scrollable_frame(parent):
-    container = tk.Frame(parent)
-    container.pack(fill="both", expand=True)
-    canvas = tk.Canvas(container, borderwidth=0, height=300)
-    h_scrollbar = tk.Scrollbar(container, orient="horizontal", command=canvas.xview)
-    canvas.configure(xscrollcommand=h_scrollbar.set)
-    h_scrollbar.pack(side="bottom", fill="x")
-    canvas.pack(side="top", fill="both", expand=True)
-    scroll_frame = tk.Frame(canvas)
-    canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
-    scroll_frame.bind("<Configure>", lambda event, canvas=canvas: canvas.configure(scrollregion=canvas.bbox("all")))
-    return scroll_frame
-
-def create_notebook_with_matrix(matrix, df_doadores, data):
-    root = tk.Toplevel()
-    root.title("Matriz com Destaques")
-    root.geometry("800x600")
-    
-    notebook = ttk.Notebook(root)
-    notebook.pack(expand=True, fill="both")
-    
-    pdsid_cols_data = [col for col in data.columns if col.startswith("PDSID")]
-    
-    for idx, row in df_doadores.iterrows():
-        current_pdsids = [row[col] for col in row.index if col.startswith("PDSID") and pd.notnull(row[col])]
-        related_indexes = set()
-        for pdsid in current_pdsids:
-            for col in pdsid_cols_data:
-                matches = data[(data[col] == pdsid) & (data.index != idx)]
-                related_indexes.update(matches.index.tolist())
-                
-        related_info = []
-        for r in sorted(related_indexes):
-            bid = data.loc[r, "Inventory BID"]
-            related_info.append(f"Index: {r}, BID: {bid}")
-        related_info_str = "\n".join(related_info) if related_info else "Nenhum relacionado encontrado."
+# =======================================================
+# Janela Principal (Interface de Execução)
+# =======================================================
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Interface de Execução")
+        self.setGeometry(100, 100, 600, 400)
+        self.csv_path = ""
         
-        tab = tk.Frame(notebook)
-        notebook.add(tab, text=f"Item {idx}")  # Índice real
+        centralWidget = QWidget()
+        self.setCentralWidget(centralWidget)
+        mainLayout = QVBoxLayout(centralWidget)
         
-        # Nome do item
-        item_label = tk.Label(tab, text=f"Item: {idx}", font=("Arial", 14, "bold"))
-        item_label.pack(pady=5, padx=5, anchor="w")
+        # Linha para importar o CSV e normalizar
+        csvLayout = QHBoxLayout()
+        self.csvLineEdit = QLineEdit()
+        self.csvLineEdit.setPlaceholderText("Caminho do CSV")
+        btnImportCSV = QPushButton("Import CSV")
+        btnImportCSV.clicked.connect(self.import_csv)
+        btnNormalize = QPushButton("Normalize Data")
+        btnNormalize.clicked.connect(self.normalize_data)
+        csvLayout.addWidget(QLabel("CSV File:"))
+        csvLayout.addWidget(self.csvLineEdit)
+        csvLayout.addWidget(btnImportCSV)
+        csvLayout.addWidget(btnNormalize)
+        mainLayout.addLayout(csvLayout)
         
-        donor_info = tk.Label(tab, text=f"Informações do Doador:\n{row.to_dict()}",
-                              justify="left", anchor="w", wraplength=300)
-        donor_info.pack(pady=(5,2), padx=5, anchor="w")
+        # Feedback visual de normalização
+        self.feedbackLabel = QLabel("")
+        mainLayout.addWidget(self.feedbackLabel)
         
-        scroll_frame = create_scrollable_frame(tab)
-        matrix_frame = create_matrix_frame(scroll_frame, matrix,
-                                           highlight_index=idx,
-                                           related_indexes=related_indexes)
-        matrix_frame.grid(row=0, column=0, padx=5, pady=5)
+        # Inputs para parâmetros: Layout e Bench
+        paramsLayout = QHBoxLayout()
+        self.layoutLineEdit = QLineEdit()
+        self.layoutLineEdit.setPlaceholderText("Ex: (9,20)")
+        self.benchLineEdit = QLineEdit()
+        self.benchLineEdit.setPlaceholderText("Ex: (4,2)")
+        paramsLayout.addWidget(QLabel("Layout Size:"))
+        paramsLayout.addWidget(self.layoutLineEdit)
+        paramsLayout.addWidget(QLabel("Bench Size:"))
+        paramsLayout.addWidget(self.benchLineEdit)
+        mainLayout.addLayout(paramsLayout)
         
-        related_label = tk.Label(scroll_frame, text=f"Doadores Relacionados:\n{related_info_str}",
-                                 justify="left", anchor="w", fg="blue", wraplength=200)
-        related_label.grid(row=0, column=1, padx=5, pady=5, sticky="n")
+        # Botão para rodar o algoritmo genético
+        btnRunAlgorithm = QPushButton("Run Algorithm")
+        btnRunAlgorithm.clicked.connect(self.run_algorithm)
+        mainLayout.addWidget(btnRunAlgorithm)
     
-    return root
-
-# --- Funções de apoio para a interface principal ---
-
-def import_csv():
-    file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
-    if file_path:
-        entry_csv_path.delete(0, tk.END)
-        entry_csv_path.insert(0, file_path)
-
-def run_normalization():
-    file_path = entry_csv_path.get()
-    if not file_path:
-        messagebox.showerror("Erro", "Por favor, importe um arquivo CSV primeiro.")
-        return
-    try:
-        # Chama o script normalize-data.py com o caminho do CSV
-        subprocess.run(["python", "normalize-data.py", file_path], check=True)
-        messagebox.showinfo("Sucesso", "CSV normalizado com sucesso.")
-    except subprocess.CalledProcessError as e:
-        messagebox.showerror("Erro", f"A normalização falhou: {str(e)}")
-
-def run_algorithm():
-    layout_str = entry_layout.get()
-    bench_str = entry_bench.get()
-    try:
-        layout = eval(layout_str)  # Exemplo: (9,20)
-        bench = eval(bench_str)    # Exemplo: (4,2)
-    except Exception as e:
-        messagebox.showerror("Erro", "Formato inválido para layout ou bench.")
-        return
+    def import_csv(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Select CSV File", "", "CSV Files (*.csv)")
+        if path:
+            self.csv_path = path
+            self.csvLineEdit.setText(path)
     
-    file_path = entry_csv_path.get()
-    if not file_path:
-        messagebox.showerror("Erro", "Por favor, importe um arquivo CSV.")
-        return
-    try:
-        data = pd.read_csv(file_path)
-    except Exception as e:
-        messagebox.showerror("Erro", f"Falha ao ler o CSV: {str(e)}")
-        return
+    def normalize_data(self):
+        if not self.csv_path:
+            QMessageBox.critical(self, "Erro", "Por favor, selecione um CSV primeiro.")
+            return
+        try:
+            # Chama o script normalize-data-program.py passando o caminho do CSV.
+            # Este script deve gerar o arquivo "result-program.csv" como resultado.
+            subprocess.run(["python", "normalize-data-program.py", self.csv_path], check=True)
+            self.feedbackLabel.setText("CSV normalizado com sucesso!")
+        except subprocess.CalledProcessError as e:
+            QMessageBox.critical(self, "Erro", f"Erro ao normalizar CSV: {str(e)}")
     
-    # Aqui você pode integrar a execução do seu algoritmo que gera a população
-    # e otimiza a disposição. Para demonstração, criaremos uma matriz dummy com o layout.
-    matrix = np.arange(layout[0] * layout[1]).reshape(layout)
+    def run_algorithm(self):
+        # Coleta os parâmetros dos inputs
+        layout_str = self.layoutLineEdit.text()
+        bench_str = self.benchLineEdit.text()
+        try:
+            layout_dim = eval(layout_str)  # Exemplo: (9,20)
+            bench_dim = eval(bench_str)    # Exemplo: (4,2)
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", "Formato inválido para layout ou bench.")
+            return
+        
+        # Em vez de usar o arquivo importado, usa o arquivo normalizado "result-program.csv"
+        try:
+            data = pd.read_csv("result-program.csv")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro ao ler o arquivo result-program.csv: {str(e)}")
+            return
+        
+        # Calcula o número de colunas PDSID presentes no DataFrame
+        num_pdsid_columns = sum(col.startswith("PDSID") for col in data.columns)
+        
+        # Atualiza o feedback visual
+        self.feedbackLabel.setText("Executando o algoritmo genético...")
+        QApplication.processEvents()
+        
+        # Importa as funções do algoritmo genético do módulo core (certifique-se do caminho correto)
+        from core.mainProgram import genetic_algorithm
+        from core.aux import map_ids_to_functions
+        
+        # Executa o algoritmo genético
+        best_solution, best_fitness = genetic_algorithm(data, layout_dim, bench_dim, num_pdsid_columns)
+        print("Melhor fitness:", best_fitness)
+        
+        # Converte a melhor solução em uma "function matrix"
+        function_matrix = map_ids_to_functions(best_solution, data)
+        print("Function Matrix:\n", function_matrix)
+        
+        # Filtra os doadores (onde 'Pollination Gender' == 'M')
+        df_donors = data[data["Pollination Gender"] == "M"]
+        
+        # Abre a janela de resultados com a matriz final
+        self.resultWindow = ResultWindow(function_matrix, df_donors, data)
+        self.resultWindow.show()
+
+# =======================================================
+# Janela de Resultados (Exibição dos Resultados do Algoritmo)
+# =======================================================
+class ResultWindow(QWidget):
+    def __init__(self, matrix, df_donors, data):
+        super().__init__()
+        self.setWindowTitle("Matriz com Destaques")
+        self.resize(1200, 1200)  # Tamanho máximo semelhante ao exemplo Tkinter
+        self.matrix = matrix
+        self.df_donors = df_donors
+        self.data = data
+        
+        layout = QVBoxLayout(self)
+        self.tabWidget = QTabWidget()
+        layout.addWidget(self.tabWidget)
+        
+        # Para cada doador, cria uma aba
+        for idx, row in self.df_donors.iterrows():
+            tab = QWidget()
+            tabLayout = QVBoxLayout(tab)
+            
+            # Label com o nome do item (índice)
+            item_label = QLabel(f"Item: {idx}")
+            font = QFont("Arial", 14, QFont.Bold)
+            item_label.setFont(font)
+            tabLayout.addWidget(item_label)
+            
+            # Exibe as informações do doador com wrap e largura limitada
+            donor_info = QLabel("Informações do Doador:\n" + str(row.to_dict()))
+            donor_info.setWordWrap(True)
+            donor_info.setMaximumWidth(600)
+            donor_info.setMaximumHeight(300)
+            tabLayout.addWidget(donor_info)
+            
+            # Cria um QScrollArea para conter a matriz e os BIDs relacionados
+            scroll_area = QScrollArea()
+            scroll_area.setWidgetResizable(True)
+            container = QWidget()
+            hLayout = QHBoxLayout(container)
+            
+            # Obtém os índices relacionados para este doador
+            related_indexes = self.get_related_indexes(row)
+            # Cria o widget da matriz (usando QGridLayout) com destaque
+            matrix_widget = self.createMatrixWidget(self.matrix, idx, related_indexes)
+            hLayout.addWidget(matrix_widget)
+            
+            # Cria um QLabel com as informações dos BIDs relacionados
+            related_info_str = self.get_related_info(row)
+            related_label = QLabel("Doadores Relacionados:\n" + related_info_str)
+            related_label.setWordWrap(True)
+            related_label.setStyleSheet("color: blue;")
+            related_label.setMaximumWidth(200)
+            hLayout.addWidget(related_label)
+            
+            container.setLayout(hLayout)
+            scroll_area.setWidget(container)
+            tabLayout.addWidget(scroll_area)
+            
+            self.tabWidget.addTab(tab, f"Item {idx}")
+        
+        self.setLayout(layout)
     
-    # Filtra os doadores (exemplo: "Pollination Gender" igual a "M")
-    df_doadores = data[data["Pollination Gender"] == "M"]
+    def createMatrixWidget(self, matrix, highlight_index, related_indexes):
+        """
+        Cria um widget para exibir a matriz em um layout de grade.
+        As células cuja string seja igual ao highlight_index serão pintadas de amarelo,
+        e as que estiverem em related_indexes (convertidos para string) serão pintadas de azul claro.
+        """
+        widget = QWidget()
+        grid = QGridLayout(widget)
+        rows, cols = matrix.shape
+        related_str = {str(x) for x in related_indexes}
+        for i in range(rows):
+            for j in range(cols):
+                cell_value = matrix[i, j]
+                cell_str = str(cell_value)
+                label = QLabel(cell_str)
+                label.setAlignment(Qt.AlignCenter)
+                if highlight_index is not None and cell_str == str(highlight_index):
+                    label.setStyleSheet("background-color: yellow; border: 1px solid black; padding: 5px;")
+                elif cell_str in related_str:
+                    label.setStyleSheet("background-color: lightblue; border: 1px solid black; padding: 5px;")
+                else:
+                    label.setStyleSheet("background-color: white; border: 1px solid black; padding: 5px;")
+                grid.addWidget(label, i, j)
+        return widget
     
-    # Abre uma nova janela com o notebook de matrizes
-    notebook_window = create_notebook_with_matrix(matrix, df_doadores, data)
-    notebook_window.mainloop()
+    def get_related_indexes(self, donor_row):
+      related_indexes = set()
+      # Obtém todas as colunas que começam com "PDSID" do DataFrame completo
+      pdsid_cols_data = [col for col in self.data.columns if col.startswith("PDSID")]
+      # Para cada valor de PDSID presente no doador (em qualquer coluna), procure em todas as colunas PDSID
+      for col in donor_row.index:
+          if col.startswith("PDSID") and pd.notnull(donor_row[col]):
+              pdsid_value = donor_row[col]
+              for pdsid_col in pdsid_cols_data:
+                  matches = self.data[(self.data[pdsid_col] == pdsid_value) &
+                                      (self.data["Inventory BID"] != donor_row["Inventory BID"])]
+                  related_indexes.update(matches.index.tolist())
+      return related_indexes
 
-# --- Interface Principal ---
+    
+    def get_related_info(self, donor_row):
+        """
+        Retorna uma string com os índices relacionados e seus respectivos "Inventory BID".
+        """
+        related_indexes = self.get_related_indexes(donor_row)
+        info_list = []
+        for idx in sorted(related_indexes):
+            bid = self.data.loc[idx, "Inventory BID"]
+            info_list.append(f"Index: {idx}, BID: {bid}")
+        return "\n".join(info_list) if info_list else "Nenhum relacionado encontrado."
 
-root = tk.Tk()
-root.title("Interface de Execução")
-root.geometry("600x400")
-
-# Frame para importação do CSV
-frame_csv = tk.Frame(root)
-frame_csv.pack(pady=10, padx=10, fill="x")
-
-tk.Label(frame_csv, text="CSV File:").pack(side="left")
-entry_csv_path = tk.Entry(frame_csv, width=40)
-entry_csv_path.pack(side="left", padx=5)
-tk.Button(frame_csv, text="Import CSV", command=import_csv).pack(side="left", padx=5)
-tk.Button(frame_csv, text="Normalize Data", command=run_normalization).pack(side="left", padx=5)
-
-# Frame para parâmetros de layout e bench
-frame_params = tk.Frame(root)
-frame_params.pack(pady=10, padx=10, fill="x")
-
-tk.Label(frame_params, text="Layout Size (ex: (9,20)):", anchor="w").pack(side="left")
-entry_layout = tk.Entry(frame_params, width=15)
-entry_layout.pack(side="left", padx=5)
-
-tk.Label(frame_params, text="Bench Size (ex: (4,2)):", anchor="w").pack(side="left")
-entry_bench = tk.Entry(frame_params, width=10)
-entry_bench.pack(side="left", padx=5)
-
-# Botão para executar o algoritmo
-tk.Button(root, text="Run Algorithm", command=run_algorithm).pack(pady=20)
-
-root.mainloop()
+# =======================================================
+# Execução do Aplicativo
+# =======================================================
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    mainWin = MainWindow()
+    mainWin.show()
+    sys.exit(app.exec_())
