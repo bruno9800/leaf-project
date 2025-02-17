@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from core.aux import map_ids_to_functions
+from core.display import create_notebook_with_matrix
 from core.select_parents import select_parents
 from core.crossover import crossover
 from core.fitness import calculate_fitness_with_custom_penalty
@@ -11,6 +12,8 @@ from core.fitness import calculate_fitness_with_custom_penalty
 # Carregar o arquivo CSV
 file_path = 'result.csv'
 data = pd.read_csv(file_path)
+
+df_doadores = data[data["Pollination Gender"] == "M"]
 
 # Definir as dimensões da matriz do layout
 layout_dimensions = (9, 20)  # Exemplo: 5 linhas por 20 colunas
@@ -91,9 +94,13 @@ def genetic_algorithm(
     return best_solution, best_fitness
 
 
-best_solution, best_fitness = genetic_algorithm(data, layout_dimensions)
+
+if __name__ == "__main__":
+    best_solution, best_fitness = genetic_algorithm(data, layout_dimensions)
 
 
-function_matrix = map_ids_to_functions(best_solution, data)
-# A melhor disposição de plantas encontrada será retornada em `best_solution`.
-print(function_matrix)
+    function_matrix = map_ids_to_functions(best_solution, data)
+    # A melhor disposição de plantas encontrada será retornada em `best_solution`.
+    print(function_matrix)
+    root = create_notebook_with_matrix(function_matrix, df_doadores, data)
+    root.mainloop()
