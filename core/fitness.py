@@ -31,12 +31,12 @@ def calculate_fitness_with_custom_penalty(matrix, data, bench_size=(4, 2), pdsid
                                     if receptor_role == 'M':
                                         distance *= 1  # Penalidade menor se o receptor for também um doador
                                     else:
-                                        distance *= 4  # Penalidade máxima para receptores fora da bancada do doador
+                                        distance *= 6  # Penalidade máxima para receptores fora da bancada do doador
                                 else:
                                     if receptor_role == 'M':
-                                        distance *= 2  # Penalidade média se o receptor for doador e estiver na bancada do doador
+                                        distance *= 4  # Penalidade média se o receptor for doador e estiver na bancada do doador
                                     else:
-                                        distance *= 3  # Penalidade se for apenas receptor na bancada do doador
+                                        distance *= 2  # Penalidade se for apenas receptor na bancada do doador
 
                                 total_distance += distance
 

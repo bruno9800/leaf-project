@@ -83,7 +83,7 @@ def genetic_algorithm(
         population = next_population[:population_size]
 
     # Calcular o fitness final da população
-    final_fitness_values = [calculate_fitness_with_custom_penalty(matrix, data, (4, 2), num_pdsid_columns) for matrix in population]
+    final_fitness_values = [calculate_fitness_with_custom_penalty(matrix, data, (4, 2), pdsid_columns=num_pdsid_columns) for matrix in population]
 
     # Encontrar o melhor cromossomo da população final
     best_index = np.argmin(final_fitness_values)
