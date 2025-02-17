@@ -78,48 +78,57 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Erro", f"Erro ao normalizar CSV: {str(e)}")
     
     def run_algorithm(self):
-        # Coleta os parâmetros dos inputs
-        layout_str = self.layoutLineEdit.text()
-        bench_str = self.benchLineEdit.text()
-        try:
-            layout_dim = eval(layout_str)  # Exemplo: (9,20)
-            bench_dim = eval(bench_str)    # Exemplo: (4,2)
-        except Exception as e:
-            QMessageBox.critical(self, "Erro", "Formato inválido para layout ou bench.")
-            return
-        
-        # Em vez de usar o arquivo importado, usa o arquivo normalizado "result-program.csv"
-        try:
-            data = pd.read_csv("result-program.csv")
-        except Exception as e:
-            QMessageBox.critical(self, "Erro", f"Erro ao ler o arquivo result-program.csv: {str(e)}")
-            return
-        
-        # Calcula o número de colunas PDSID presentes no DataFrame
-        num_pdsid_columns = sum(col.startswith("PDSID") for col in data.columns)
-        
-        # Atualiza o feedback visual
-        self.feedbackLabel.setText("Executando o algoritmo genético...")
-        QApplication.processEvents()
-        
-        # Importa as funções do algoritmo genético do módulo core (certifique-se do caminho correto)
-        from core.mainProgram import genetic_algorithm
-        from core.aux import map_ids_to_functions
-        
-        # Executa o algoritmo genético
-        best_solution, best_fitness = genetic_algorithm(data, layout_dim, bench_dim, num_pdsid_columns)
-        print("Melhor fitness:", best_fitness)
-        
-        # Converte a melhor solução em uma "function matrix"
-        function_matrix = map_ids_to_functions(best_solution, data)
-        print("Function Matrix:\n", function_matrix)
-        
-        # Filtra os doadores (onde 'Pollination Gender' == 'M')
-        df_donors = data[data["Pollination Gender"] == "M"]
-        
-        # Abre a janela de resultados com a matriz final
-        self.resultWindow = ResultWindow(function_matrix, df_donors, data)
-        self.resultWindow.show()
+    # Coleta os parâmetros dos inputs
+      layout_str = self.layoutLineEdit.text()
+      bench_str = self.benchLineEdit.text()
+      try:
+          layout_dim = eval(layout_str)  # Exemplo: (9,20)
+          bench_dim = eval(bench_str)    # Exemplo: (4,2)
+      except Exception as e:
+          QMessageBox.critical(self, "Erro", "Formato inválido para layout ou bench.")
+          return
+
+      # Em vez de usar o arquivo importado, usa o arquivo normalizado "result-program.csv"
+      try:
+          data = pd.read_csv("result-program.csv")
+      except Exception as e:
+          QMessageBox.critical(self, "Erro", f"Erro ao ler o arquivo result-program.csv: {str(e)}")
+          return
+
+      # Verifica se o layout comporta todas as plantas
+      num_plants = data.shape[0]
+      total_positions = layout_dim[0] * layout_dim[1]
+      if total_positions < num_plants:
+          QMessageBox.critical(self, "Erro", f"O layout precisa ter pelo menos {num_plants} posições. "
+                                              f"Seu layout atual possui {total_positions} posições.")
+          return
+
+      # Calcula o número de colunas PDSID presentes no DataFrame
+      num_pdsid_columns = sum(col.startswith("PDSID") for col in data.columns)
+
+      # Atualiza o feedback visual
+      self.feedbackLabel.setText("Executando o algoritmo genético...")
+      QApplication.processEvents()
+
+      # Importa as funções do algoritmo genético do módulo core (certifique-se do caminho correto)
+      from core.mainProgram import genetic_algorithm
+      from core.aux import map_ids_to_functions
+
+      # Executa o algoritmo genético
+      best_solution, best_fitness = genetic_algorithm(data, layout_dim, bench_dim, num_pdsid_columns)
+      print("Melhor fitness:", best_fitness)
+
+      # Converte a melhor solução em uma "function matrix"
+      function_matrix = map_ids_to_functions(best_solution, data)
+      print("Function Matrix:\n", function_matrix)
+
+      # Filtra os doadores (onde 'Pollination Gender' == 'M')
+      df_donors = data[data["Pollination Gender"] == "M"]
+
+      # Abre a janela de resultados com a matriz final
+      self.resultWindow = ResultWindow(function_matrix, df_donors, data)
+      self.resultWindow.show()
+
 
 # =======================================================
 # Janela de Resultados (Exibição dos Resultados do Algoritmo)
